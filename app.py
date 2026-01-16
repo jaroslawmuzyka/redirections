@@ -4,12 +4,54 @@ from rapidfuzz import process, fuzz
 import io
 import openpyxl
 
-# Konfiguracja strony (musi być pierwszą komendą)
+# 1. Konfiguracja strony (musi być ZAWSZE pierwsza)
 st.set_page_config(
     page_title="URL Matcher",
-    page_icon="🚀",
+    page_icon="🔒",
     layout="wide"
 )
+
+# --- MODUŁ LOGOWANIA ---
+def check_password():
+    """Zwraca `True` jeśli użytkownik podał poprawne hasło."""
+
+    def password_entered():
+        """Sprawdza czy wpisane hasło zgadza się z tym w sekretach."""
+        if st.session_state["password"] == st.secrets["APP_PASSWORD"]:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Nie przechowujemy hasła
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        # Pierwsze uruchomienie, pokaż formularz
+        st.text_input(
+            "Podaj hasło dostępu:", 
+            type="password", 
+            on_change=password_entered, 
+            key="password"
+        )
+        return False
+    elif not st.session_state["password_correct"]:
+        # Hasło błędne
+        st.text_input(
+            "Podaj hasło dostępu:", 
+            type="password", 
+            on_change=password_entered, 
+            key="password"
+        )
+        st.error("😕 Niepoprawne hasło")
+        return False
+    else:
+        # Hasło poprawne
+        return True
+
+if not check_password():
+    st.stop()  # Zatrzymuje aplikację, jeśli brak autoryzacji
+
+# =========================================================
+# WŁAŚCIWA APLIKACJA (Kod wykonuje się tylko po zalogowaniu)
+# =========================================================
 
 # --- Funkcja przetwarzająca (zoptymalizowana i cache'owana) ---
 @st.cache_data(show_spinner=False)
@@ -24,8 +66,6 @@ def process_excel(file_bytes):
         sheet = workbook.active
         
         # Pobieranie danych (pomijamy nagłówek - row 1)
-        # Optymalizacja: List comprehension jest szybkie, ale w Streamlit chcemy to zrobić raz
-        
         # 1. Kandydaci z kolumny B (URL2)
         all_url2_values = [
             str(cell.value).strip() 
