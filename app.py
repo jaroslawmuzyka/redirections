@@ -31,6 +31,7 @@ def check_password():
             on_change=password_entered, 
             key="password"
         )
+        st.info("Dane potrzebne do zalogowania znajdują się w Monday. Kontakt: jaroslaw.muzyka@performance-group.pl")
         return False
     elif not st.session_state["password_correct"]:
         # Hasło błędne
@@ -41,6 +42,7 @@ def check_password():
             key="password"
         )
         st.error("😕 Niepoprawne hasło")
+        st.info("Dane potrzebne do zalogowania znajdują się w Monday. Kontakt: jaroslaw.muzyka@performance-group.pl")
         return False
     else:
         # Hasło poprawne
@@ -74,17 +76,12 @@ def process_excel(file_bytes):
         ]
         candidates = list(set(all_url2_values)) # Unikalne wartości
         
-        # 2. Cele z kolumny A (URL1) i odpowiadające im URL2 (dla kontekstu)
+        # 2. Cele z kolumny A (URL1)
         url1_data = []
         for cell_a in sheet['A'][1:]:
             if cell_a.value is not None and str(cell_a.value).strip() != '':
-                # Pobranie wartości z kolumny B w tym samym wierszu
-                url2_val = sheet.cell(row=cell_a.row, column=2).value
-                url2_str = str(url2_val) if url2_val is not None else ''
-                
                 url1_data.append({
-                    'URL1': str(cell_a.value).strip(),
-                    'URL2': url2_str
+                    'URL1': str(cell_a.value).strip()
                 })
         
         if not url1_data:
@@ -99,6 +96,9 @@ def run_matching(url1_data, candidates):
     results = []
     total_items = len(url1_data)
     
+    stop_btn_placeholder = st.empty()
+    stop_btn_placeholder.button("🛑 Zatrzymaj analizę", key="stop_analysis_btn")
+
     # Pasek postępu
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -111,14 +111,13 @@ def run_matching(url1_data, candidates):
         matches = process.extract(url1, candidates, scorer=fuzz.WRatio, limit=3)
         
         row = {
-            'URL1': url1,
-            'URL2 (Oryginał)': item['URL2']
+            'URL 1 (do przekierowania)': url1
         }
         
         for i, match in enumerate(matches):
             url_match, similarity, _ = match
             row[f'Propozycja {i+1}'] = url_match
-            row[f'% {i+1}'] = f"{similarity:.2f}"
+            row[f'% {i+1}'] = similarity
             
         results.append(row)
         
@@ -130,23 +129,56 @@ def run_matching(url1_data, candidates):
 
     progress_bar.empty()
     status_text.empty()
+    stop_btn_placeholder.empty()
     
-    return pd.DataFrame(results)
+    df = pd.DataFrame(results)
+    
+    if '% 1' in df.columns:
+        df = df.sort_values(by='% 1', ascending=False)
+        
+    for i in range(1, 4):
+        col_name = f'% {i}'
+        if col_name in df.columns:
+            df[col_name] = df[col_name].apply(lambda x: f"{x:.2f}")
+            
+    return df
 
 # --- Interfejs Użytkownika (UI) ---
 
-st.title("🚀 URL Matcher Pro")
+st.title("🚀 URL Matcher")
 st.markdown("""
-To narzędzie dopasowuje adresy URL z **Kolumny A (URL1)** do najbardziej podobnych adresów z **Kolumny B (URL2)**.
-Działa nawet, jeśli dane w Excelu są wynikami formuł.
+Narzędzie rozwiązuje problem masowego mapowania przekierowań 301, znajdując najbardziej zbliżone adresy URL z aktualnej oferty dla starych lub wygasłych linków.
 """)
 
-st.info("Wymagany format pliku: Excel (.xlsx), dane w pierwszej zakładce. Kolumna A: URL do sprawdzenia, Kolumna B: Baza adresów.")
+st.markdown("""
+### Instrukcje:
+Wgraj plik XLSX z dwiema kolumnami:
+* **Kolumna A:** lista adresów do przekierowania (np. adresy z kodem 404)
+* **Kolumna B:** lista wszystkich aktualnych adresów URL (kandydaci do przekierowań)
+
+Uruchom skrypt analizy podobieństwa i poczekaj na wyniki analizy.  
+Pobierz wynik z propozycjami dopasowań. 
+
+**Przykładowy plik:**
+""")
+
+try:
+    with open("przykladowy-plik.xlsx", "rb") as f:
+        przykladowy_plik_bytes = f.read()
+    st.download_button(
+        label="📥 Pobierz przykładowy plik (przykladowy-plik.xlsx)",
+        data=przykladowy_plik_bytes,
+        file_name="przykladowy-plik.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+except FileNotFoundError:
+    st.warning("Przykładowy plik (przykladowy-plik.xlsx) nie został znaleziony w głównym katalogu.")
+
+st.info("Wymagany format pliku: Excel (.xlsx). Kolumna A: URL do sprawdzenia, Kolumna B: Baza adresów.")
 
 uploaded_file = st.file_uploader("Wgraj plik Excel (.xlsx)", type=['xlsx'])
 
 if uploaded_file is not None:
-    # Przycisk startu, żeby użytkownik miał kontrolę
     if st.button("Uruchom analizę", type="primary"):
         
         with st.spinner("Wczytywanie i analiza pliku..."):
