@@ -110,9 +110,19 @@ def process_file(file_bytes, filename):
     except Exception as e:
         return None, f"Błąd podczas odczytu pliku: {e}"
 
-def run_matching(url1_data, candidates):
+def run_matching(url1_data, candidates, domain_to_exclude=""):
     results = []
     total_items = len(url1_data)
+    
+    clean_domain = domain_to_exclude.strip()
+    
+    # Przygotowanie wyczyszczonych kandydatów
+    cleaned_candidates = []
+    for c in candidates:
+        if clean_domain and c.startswith(clean_domain):
+            cleaned_candidates.append(c[len(clean_domain):])
+        else:
+            cleaned_candidates.append(c)
     
     stop_btn_placeholder = st.empty()
     stop_btn_placeholder.button("🛑 Zatrzymaj analizę", key="stop_analysis_btn")
@@ -124,14 +134,21 @@ def run_matching(url1_data, candidates):
     for idx, item in enumerate(url1_data):
         url1 = item['URL1']
         
-        matches = process.extract(url1, candidates, scorer=fuzz.WRatio, limit=3)
+        # Czyszczenie url1 na potrzeby analizy
+        clean_url1 = url1
+        if clean_domain and url1.startswith(clean_domain):
+            clean_url1 = url1[len(clean_domain):]
+            
+        matches = process.extract(clean_url1, cleaned_candidates, scorer=fuzz.WRatio, limit=3)
         
         row = {
             'URL 1 (do przekierowania)': url1
         }
         
         for i, match in enumerate(matches):
-            url_match, similarity, _ = match
+            _, similarity, orig_idx = match
+            # Pobieramy oryginalny adres kandydata na podstawie indeksu
+            url_match = candidates[orig_idx]
             row[f'Propozycja {i+1}'] = url_match
             row[f'% {i+1}'] = similarity
             
@@ -214,6 +231,12 @@ st.info("Wymagany format pliku: Excel (.xlsx) lub plik wartości oddzielonych pr
 
 uploaded_file = st.file_uploader("Wgraj plik z adresami (.xlsx, .csv)", type=['xlsx', 'csv'])
 
+domain_to_exclude = st.text_input(
+    "Wyklucz domenę (opcjonalnie)",
+    placeholder="np. https://www.obi.pl/",
+    help="Podanie domeny (np. https://www.obi.pl/) sprawi, że skrypt usunie ten przedrostek z adresów URL przed ich porównywaniem. Dzięki temu algorytm skupi się na analizie samej ścieżki i nie będzie sztucznie zawyżał wyników procentowych ze względu na powtarzającą się nazwę domeny."
+)
+
 if uploaded_file is not None:
     if st.button("Uruchom analizę", type="primary"):
         
@@ -225,7 +248,7 @@ if uploaded_file is not None:
                 st.error(f"Wystąpił błąd: {candidates_or_error}")
             else:
                 # Krok 2: Uruchomienie dopasowywania
-                final_df = run_matching(data_extracted, candidates_or_error)
+                final_df = run_matching(data_extracted, candidates_or_error, domain_to_exclude)
                 
                 # --- WYLICZENIE STATYSTYK ---
                 if '% 1' in final_df.columns:
